@@ -1,0 +1,10 @@
+env/
+dist/
+build/
+__pycache__/
+*.spec
+*.exe
+agente.py
+build.py
+server.py
+sap_client.py

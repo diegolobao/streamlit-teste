@@ -1,7 +1,6 @@
-fastapi
-uvicorn[standard]
 streamlit
-pywin32
-pydantic
-requests
-pyinstaller
+supabase
+bcrypt
+python-dotenv
+httpx
+pandas

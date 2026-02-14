@@ -2,3 +2,5 @@ streamlit
 supabase
 bcrypt
 python-dotenv
+httpx
+pandas

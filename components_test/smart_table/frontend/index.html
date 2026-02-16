@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: transparent;
+      color: #1e293b;
+      font-size: 12px;
+    }
+
+    /* ── Tabela ── */
+    .table-wrapper {
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+
+    .table-scroll {
+      overflow-x: hidden;
+      overflow-y: auto;
+    }
+
+    table { width: 100%; border-collapse: collapse; }
+
+    thead th {
+      background: #f8fafc;
+      color: #64748b;
+      font-weight: 600;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 6px 8px;
+      border-bottom: 2px solid #e2e8f0;
+      text-align: left;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      user-select: none;
+      cursor: pointer;
+      transition: background 0.15s;
+      white-space: nowrap;
+    }
+
+    thead th:hover { background: #eef2f7; }
+    thead th .sort-icon { margin-left: 4px; opacity: 0.3; font-size: 10px; vertical-align: middle; }
+    thead th.sorted .sort-icon { opacity: 1; color: #2563eb; }
+
+    tbody tr { border-bottom: 1px solid #f1f5f9; transition: background 0.1s; }
+    tbody tr:hover { background: #eef2f7 !important; }
+    tbody tr.selected { background: #eff6ff !important; }
+    tbody td { padding: 4px 4.5px; vertical-align: middle; overflow-wrap: break-word; word-break: break-word; }
+
+    /* ── Agrupamento por nota ── */
+    tbody tr.group-even { background: #f8fafc; }
+    tbody tr.group-odd  { background: #ffffff; }
+    tbody tr.group-first td { border-top: 2px solid #cbd5e1; }
+    tbody tr:first-child td { border-top: none; }
+
+    /* Célula de nota agrupada (rowspan) */
+    td.group-nota-cell {
+      font-weight: 600;
+      color: #1e40af;
+      vertical-align: middle;
+      text-align: center;
+      background: rgba(37, 99, 235, 0.04);
+    }
+
+    /* ── Checkbox ── */
+    .cb-cell { display: flex; align-items: center; justify-content: center; }
+    .cb-cell input[type="checkbox"] { width: 16px; height: 16px; accent-color: #2563eb; cursor: pointer; }
+
+    /* ── Chip ── */
+    .chip {
+      display: inline-flex; align-items: center; background: #e0e7ff; color: #3730a3;
+      font-size: 10px; font-weight: 500; padding: 1px 6px;
+      border-radius: 12px; margin: 1px 2px 1px 0; white-space: nowrap;
+      position: relative;
+    }
+    .chip .chip-remove {
+      display: inline-flex; align-items: center; justify-content: center;
+      margin-left: 3px; width: 12px; height: 12px; border-radius: 50%;
+      font-size: 9px; font-weight: 700; line-height: 1;
+      color: #94a3b8; cursor: pointer; opacity: 0; transition: opacity 0.15s, color 0.15s, background 0.15s;
+    }
+    .chip:hover .chip-remove { opacity: 1; }
+    .chip .chip-remove:hover { color: #fff; background: #ef4444; }
+
+    /* ── Botão lixeira por linha ── */
+    .btn-delete-row {
+      background: none; border: none; cursor: pointer; padding: 2px;
+      color: #cbd5e1; display: inline-flex; align-items: center;
+      justify-content: center; transition: color 0.15s; border-radius: 4px;
+    }
+    .btn-delete-row:hover { color: #ef4444; }
+    .btn-delete-row svg { width: 14px; height: 14px; fill: currentColor; }
+
+    /* ── Select ── */
+    .inline-select {
+      font-family: 'Inter', sans-serif; font-size: 12px; padding: 3px 6px;
+      border: 1px solid #cbd5e1; border-radius: 6px; background: #fff;
+      color: #1e293b; cursor: pointer; outline: none; transition: border-color 0.15s;
+    }
+    .inline-select:focus { border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,0.15); }
+
+    /* ── Editable ── */
+    .editable {
+      cursor: text; padding: 2px 6px; border-radius: 4px;
+      border: 1px solid transparent; transition: border-color 0.15s;
+      min-width: 40px; display: inline-block; outline: none;
+    }
+    .editable:hover { border-color: #cbd5e1; }
+    .editable:focus { border-color: #2563eb; background: #fff; box-shadow: 0 0 0 2px rgba(37,99,235,0.15); }
+
+    /* ── Botões ── */
+    .btn-action {
+      background: none; border: 1px solid #e2e8f0; border-radius: 6px;
+      cursor: pointer; padding: 4px 6px; transition: all 0.15s;
+      color: #94a3b8; display: inline-flex; align-items: center;
+      justify-content: center; margin: 0 2px;
+    }
+    .btn-action:hover { background: #f1f5f9; color: #2563eb; border-color: #2563eb; }
+    .btn-action svg { width: 18px; height: 18px; fill: currentColor; }
+
+    /* ── Footer ── */
+    .table-footer {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 5px 8px; background: #f8fafc; border-top: 1px solid #e2e8f0;
+      font-size: 11px; color: #64748b;
+    }
+    .table-footer .count { font-weight: 600; color: #2563eb; }
+
+    /* ── Tooltip ── */
+    .tooltip-wrapper { position: relative; display: inline-flex; }
+    .tooltip-wrapper .tooltip-text {
+      visibility: hidden; background: #1e293b; color: #fff; font-size: 11px;
+      padding: 4px 8px; border-radius: 4px; position: absolute; bottom: 120%;
+      left: 50%; transform: translateX(-50%); white-space: nowrap; z-index: 5;
+      opacity: 0; transition: opacity 0.15s; pointer-events: none;
+    }
+    .tooltip-wrapper:hover .tooltip-text { visibility: visible; opacity: 1; }
+
+    /* ── Action Bar (abaixo da tabela) ── */
+    .action-bar {
+      display: flex; flex-direction: column; gap: 8px;
+      padding: 10px 8px; background: #f8fafc;
+      border-top: 1px solid #e2e8f0;
+    }
+    .action-bar .action-bar-dates {
+      display: flex; align-items: center; gap: 12px;
+    }
+    .action-bar label {
+      font-size: 12px; font-weight: 500; color: #475569;
+      display: flex; flex-direction: column; gap: 3px;
+    }
+    .action-bar input[type="date"] {
+      font-family: 'Inter', sans-serif;
+      font-size: 12px; padding: 5px 8px;
+      border: 1px solid #cbd5e1; border-radius: 6px;
+      color: #1e293b; background: #fff;
+      outline: none; transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .action-bar input[type="date"]:focus {
+      border-color: #2563eb; box-shadow: 0 0 0 2px rgba(37,99,235,0.15);
+    }
+    .btn-criar-ordens {
+      font-family: 'Inter', sans-serif;
+      font-size: 13px; font-weight: 600;
+      padding: 7px 18px; border: none; border-radius: 6px;
+      background: #2563eb; color: #fff;
+      cursor: pointer; transition: background 0.15s;
+      display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+      white-space: nowrap; align-self: flex-start;
+      min-width: 130px; box-sizing: border-box;
+    }
+    .btn-criar-ordens:hover { background: #1d4ed8; }
+    .btn-criar-ordens:disabled {
+      background: #94a3b8; cursor: not-allowed;
+    }
+    .btn-revisar {
+      font-family: 'Inter', sans-serif;
+      font-size: 13px; font-weight: 600;
+      padding: 7px 18px; border: 1px solid #2563eb; border-radius: 6px;
+      background: #fff; color: #2563eb;
+      cursor: pointer; transition: all 0.15s;
+      display: inline-flex; align-items: center; justify-content: center;
+      white-space: nowrap; align-self: flex-start;
+      min-width: 130px; box-sizing: border-box;
+    }
+    .btn-revisar:hover { background: #eff6ff; }
+    .btn-revisar:disabled {
+      border-color: #94a3b8; color: #94a3b8; cursor: not-allowed; background: #fff;
+    }
+  </style>
+</head>
+<body>
+
+<div id="app">Carregando tabela...</div>
+
+<script>
+(function () {
+  // ── Protocolo Streamlit Component (sem CDN) ──
+  var Streamlit = {
+    setComponentReady: function() {
+      window.parent.postMessage({isStreamlitMessage: true, type: 'streamlit:componentReady', apiVersion: 1}, '*');
+    },
+    setFrameHeight: function(h) {
+      window.parent.postMessage({isStreamlitMessage: true, type: 'streamlit:setFrameHeight', height: h}, '*');
+    },
+    setComponentValue: function(val) {
+      window.parent.postMessage({isStreamlitMessage: true, type: 'streamlit:setComponentValue', value: val}, '*');
+    }
+  };
+
+  var DATA = null;
+  var rows, columns, editableFields, supabaseUrl, supabaseKey, supabaseTable, rowPrimaryKey;
+  var groupKey = null;           // chave para agrupar (ex: "nota")
+  var groupMergeKeys = [];       // colunas cujas células serão unidas (rowspan) no grupo
+  var jsonbColumn = null;        // coluna JSONB no Supabase (ex: "operacoes")
+  var jsonbOpKey = null;         // chave que identifica a operação dentro do JSONB
+  var fieldMap = {};             // mapeamento coluna_tabela → campo_jsonb
+  var selectedIds = {};
+  var sortCol = null;
+  var sortAsc = true;
+
+  try {
+    var placeholderData = "__DATA_PLACEHOLDER__";
+    if (placeholderData && typeof placeholderData === 'object') { DATA = placeholderData; }
+  } catch(e) {}
+
+  window.addEventListener('message', function(event) {
+    if (event.data && event.data.type === 'streamlit:render') {
+      var args = event.data.args;
+      if (args && args.data) {
+        DATA = args.data;
+        initData();
+        render();
+      }
+    }
+  });
+
+  function initData() {
+    if (!DATA) return;
+    rows = DATA.rows.map(function(r, i) { r._id = i; return r; });
+    columns = DATA.columns;
+    editableFields = DATA.editable_fields || [];
+    supabaseUrl = DATA.supabase_url || '';
+    supabaseKey = DATA.supabase_key || '';
+    supabaseTable = DATA.supabase_table || '';
+    rowPrimaryKey = DATA.primary_key || 'id';
+    groupKey = DATA.group_key || null;
+    groupMergeKeys = DATA.group_merge_keys || [];
+    jsonbColumn = DATA.jsonb_column || null;
+    jsonbOpKey = DATA.jsonb_op_key || null;
+    fieldMap = DATA.field_map || {};
+    selectedIds = {};
+    sortCol = null;
+    sortAsc = true;
+  }
+
+  // ── Salvar edição — envia de volta ao Python via setComponentValue ──
+  function saveCell(row, field, value) {
+    var pkValue = row[rowPrimaryKey];
+    if (pkValue == null) return;
+    Streamlit.setComponentValue({
+      action: 'edit',
+      id: String(pkValue),
+      op_id: row._op_id || null,
+      field: field,
+      value: value
+    });
+  }
+
+  // ── Calcula grupos consecutivos ──
+  function computeGroups(sortedRows) {
+    if (!groupKey) return null;
+    var info = [];
+    var gi = 0;
+    var i = 0;
+    while (i < sortedRows.length) {
+      var gVal = sortedRows[i][groupKey];
+      var start = i;
+      while (i < sortedRows.length && sortedRows[i][groupKey] === gVal) { i++; }
+      var span = i - start;
+      for (var j = start; j < i; j++) {
+        info[j] = { groupIndex: gi, span: span, isFirst: (j === start), parity: gi % 2 };
+      }
+      gi++;
+    }
+    return info;
+  }
+
+  function render() {
+    var app = document.getElementById('app');
+    var sorted = getSortedRows();
+    var groups = computeGroups(sorted);
+    var selCount = Object.keys(selectedIds).length;
+    var allSelected = rows.length > 0 && selCount === rows.length;
+
+    var h = '<div class="table-wrapper"><div class="table-scroll"><table><thead><tr>';
+    h += '<th style="width:40px"><div class="cb-cell"><input type="checkbox" id="cb-all" ' + (allSelected ? 'checked' : '') + ' /></div></th>';
+
+    columns.forEach(function (col) {
+      var isSorted = sortCol === col.key;
+      var icon = isSorted ? (sortAsc ? '▲' : '▼') : '⇅';
+      var styles = [];
+      if (col.align) styles.push('text-align:' + col.align);
+      if (col.width) styles.push('width:' + col.width);
+      var thStyle = styles.length ? ' style="' + styles.join(';') + '"' : '';
+      h += '<th class="' + (isSorted ? 'sorted' : '') + '"' + thStyle + ' data-col="' + col.key + '">' + esc(col.label) + '<span class="sort-icon">' + icon + '</span></th>';
+    });
+
+    h += '<th style="width:40px;text-align:center">Ver</th><th style="width:36px;text-align:center">🗑️</th></tr></thead><tbody>';
+
+    sorted.forEach(function (row, idx) {
+      var sel = !!selectedIds[row._id];
+      var gi = groups ? groups[idx] : null;
+      var trClasses = [];
+      if (sel) trClasses.push('selected');
+      if (gi) {
+        trClasses.push(gi.parity === 0 ? 'group-even' : 'group-odd');
+        if (gi.isFirst) trClasses.push('group-first');
+      }
+
+      h += '<tr class="' + trClasses.join(' ') + '">';
+      h += '<td><div class="cb-cell"><input type="checkbox" class="row-cb" data-id="' + row._id + '" ' + (sel ? 'checked' : '') + ' /></div></td>';
+
+      columns.forEach(function (col) {
+        var val = row[col.key];
+        var isMerged = gi && groupMergeKeys.indexOf(col.key) >= 0;
+
+        // Se é coluna merged e NÃO é a primeira linha do grupo → pular (rowspan cobre)
+        if (isMerged && gi && !gi.isFirst) return;
+
+        // Atributos extras para rowspan
+        var tdAttrs = '';
+        var tdClass = '';
+        if (isMerged && gi && gi.isFirst && gi.span > 1) {
+          tdAttrs = ' rowspan="' + gi.span + '"';
+          tdClass = ' class="group-nota-cell"';
+        } else if (isMerged && gi && gi.isFirst && gi.span === 1) {
+          if (col.key === groupKey) tdClass = ' class="group-nota-cell"';
+        }
+
+        var alignStyle = col.align ? 'text-align:' + col.align + ';' : '';
+
+        if (col.type === 'chips' && Array.isArray(val)) {
+          h += '<td' + tdAttrs + tdClass + (alignStyle ? ' style="' + alignStyle + '"' : '') + '>';
+          if (val.length === 0) {
+            h += '<span style="color:#94a3b8;font-style:italic">—</span>';
+          } else {
+            val.forEach(function(v, mi) {
+              h += '<span class="chip" data-id="' + row._id + '" data-mat-idx="' + mi + '">' + esc(v);
+              h += '<span class="chip-remove" data-id="' + row._id + '" data-mat-idx="' + mi + '" title="Remover material">×</span>';
+              h += '</span>';
+            });
+          }
+          h += '</td>';
+        } else if (col.type === 'select' && col.options) {
+          h += '<td' + tdAttrs + tdClass + (alignStyle ? ' style="' + alignStyle + '"' : '') + '><select class="inline-select" data-id="' + row._id + '" data-key="' + col.key + '">';
+          col.options.forEach(function(opt){ h += '<option value="'+esc(opt)+'"'+(val===opt?' selected':'')+'>'+esc(opt)+'</option>'; });
+          h += '</select></td>';
+        } else if (editableFields.indexOf(col.key) >= 0) {
+          h += '<td' + tdAttrs + tdClass + (alignStyle ? ' style="' + alignStyle + '"' : '') + '><span class="editable" contenteditable="true" data-id="' + row._id + '" data-key="' + col.key + '">' + esc(String(val!=null?val:'')) + '</span></td>';
+        } else {
+          h += '<td' + tdAttrs + tdClass + (alignStyle ? ' style="' + alignStyle + '"' : '') + '>' + esc(String(val!=null?val:'')) + '</td>';
+        }
+      });
+
+      // Ações: olho (rowspan por grupo) + lixeira (por linha)
+      var showGroupActions = !gi || gi.isFirst;
+      if (showGroupActions) {
+        var actionRowspan = (gi && gi.span > 1) ? ' rowspan="' + gi.span + '"' : '';
+        h += '<td' + actionRowspan + ' style="vertical-align:middle;text-align:center">';
+        h += '<span class="tooltip-wrapper"><button class="btn-action btn-view" data-id="'+row._id+'"><svg viewBox="0 0 24 24"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg></button><span class="tooltip-text">Ver detalhes</span></span>';
+        h += '</td>';
+      }
+
+      // Lixeira por operação (cada linha)
+      h += '<td style="text-align:center;vertical-align:middle">';
+      h += '<span class="tooltip-wrapper"><button class="btn-delete-row" data-id="'+row._id+'"><svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg></button><span class="tooltip-text">Excluir operação</span></span>';
+      h += '</td>';
+
+      h += '</tr>';
+    });
+
+    h += '</tbody></table></div>';
+
+    // Footer com contagem de notas e operações
+    var notaCount = 0;
+    if (groups && sorted.length > 0) {
+      var seen = {};
+      sorted.forEach(function(r) { if (r[groupKey] && !seen[r[groupKey]]) { seen[r[groupKey]] = true; notaCount++; } });
+    }
+    h += '<div class="table-footer"><span>';
+    if (notaCount > 0) {
+      h += notaCount + ' nota(s), ' + rows.length + ' operação(ões)';
+    } else {
+      h += rows.length + ' registro(s)';
+    }
+    if (selCount > 0) h += ' — <span class="count">' + selCount + ' selecionado(s)</span>';
+    h += '</span><span style="font-style:italic;opacity:0.6">SmartTable Component</span></div>';
+
+    // ── Action bar: Data Início, Data Fim, Botão Criar Ordens ──
+    var prevInicio = document.getElementById('dt-inicio');
+    var prevFim = document.getElementById('dt-fim');
+    var dtInicioVal = prevInicio ? prevInicio.value : '';
+    var dtFimVal = prevFim ? prevFim.value : '';
+
+    h += '<div class="action-bar">';
+    h += '<div class="action-bar-dates">';
+    h += '<label>Data de Início<input type="date" id="dt-inicio" value="' + dtInicioVal + '" /></label>';
+    h += '<label>Data Fim<input type="date" id="dt-fim" value="' + dtFimVal + '" /></label>';
+    h += '</div>';
+    h += '<button class="btn-criar-ordens" id="btn-criar-ordens"';
+    if (selCount === 0) h += ' disabled title="Selecione ao menos uma linha"';
+    h += '>Criar Ordens</button>';
+    h += '<button class="btn-revisar" id="btn-revisar"';
+    if (selCount === 0) h += ' disabled title="Selecione ao menos uma linha"';
+    h += '>Revisar</button>';
+    h += '</div>';
+
+    h += '</div>'; // fecha wrapper
+
+    app.innerHTML = h;
+    bindEvents();
+  }
+
+  function bindEvents() {
+    var cbAll = document.getElementById('cb-all');
+    if (cbAll) cbAll.addEventListener('change', function () {
+      if (cbAll.checked) rows.forEach(function(r){selectedIds[r._id]=true;});
+      else selectedIds = {};
+      render();
+    });
+
+    document.querySelectorAll('.row-cb').forEach(function (cb) {
+      cb.addEventListener('change', function () {
+        var id = cb.getAttribute('data-id');
+        if (cb.checked) selectedIds[id] = true; else delete selectedIds[id];
+        render();
+      });
+    });
+
+    document.querySelectorAll('thead th[data-col]').forEach(function (th) {
+      th.addEventListener('click', function () {
+        var col = th.getAttribute('data-col');
+        if (sortCol === col) sortAsc = !sortAsc; else { sortCol = col; sortAsc = true; }
+        render();
+      });
+    });
+
+    document.querySelectorAll('.editable').forEach(function (el) {
+      el.addEventListener('blur', function () {
+        var id = parseInt(el.getAttribute('data-id'));
+        var key = el.getAttribute('data-key');
+        var row = rows.find(function(r){return r._id===id;});
+        if (row) {
+          var newVal = el.textContent.trim();
+          row[key] = newVal;
+          saveCell(row, key, newVal);
+        }
+      });
+      el.addEventListener('keydown', function (e) { if (e.key==='Enter'){e.preventDefault();el.blur();} });
+    });
+
+    document.querySelectorAll('.inline-select').forEach(function (sel) {
+      sel.addEventListener('change', function () {
+        var id = parseInt(sel.getAttribute('data-id'));
+        var key = sel.getAttribute('data-key');
+        var row = rows.find(function(r){return r._id===id;});
+        if (row) {
+          row[key] = sel.value;
+          saveCell(row, key, sel.value);
+        }
+      });
+    });
+
+    document.querySelectorAll('.btn-view').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var id = parseInt(btn.getAttribute('data-id'));
+        var row = rows.find(function(r){return r._id===id;});
+        if (row) {
+          var pk = row[rowPrimaryKey];
+          if (pk != null) {
+            Streamlit.setComponentValue({action: 'view', id: String(pk)});
+          }
+        }
+      });
+    });
+
+    // Excluir operação (lixeira por linha)
+    document.querySelectorAll('.btn-delete-row').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var id = parseInt(btn.getAttribute('data-id'));
+        var row = rows.find(function(r){return r._id===id;});
+        if (!row) return;
+        var pk = row[rowPrimaryKey];
+        var opId = row._op_id;
+        if (pk == null || opId == null) return;
+
+        // Verifica se é a última operação do grupo
+        var siblingsCount = rows.filter(function(r){ return r[rowPrimaryKey] === pk; }).length;
+        if (siblingsCount <= 1) {
+          if (!confirm('Esta é a última operação da nota ' + pk + '.\nExcluir irá remover a nota inteira.\n\nDeseja continuar?')) return;
+        } else {
+          if (!confirm('Excluir operação ' + opId + ' da nota ' + pk + '?')) return;
+        }
+
+        Streamlit.setComponentValue({
+          action: 'delete_op',
+          id: String(pk),
+          op_id: String(opId),
+          is_last: siblingsCount <= 1
+        });
+      });
+    });
+
+    // Validação cruzada de datas (Data Fim >= Data Início + 1 dia)
+    var elDtInicio = document.getElementById('dt-inicio');
+    var elDtFim = document.getElementById('dt-fim');
+
+    function ajustarMinDataFim() {
+      if (!elDtInicio || !elDtFim) return;
+      var valInicio = elDtInicio.value;
+      if (valInicio) {
+        var d = new Date(valInicio + 'T00:00:00');
+        d.setDate(d.getDate() + 1);
+        var minFim = d.toISOString().slice(0, 10);
+        elDtFim.min = minFim;
+        // Se Data Fim atual ficou inválida, limpa
+        if (elDtFim.value && elDtFim.value < minFim) {
+          elDtFim.value = minFim;
+        }
+      } else {
+        elDtFim.min = '';
+      }
+    }
+
+    if (elDtInicio) {
+      elDtInicio.addEventListener('change', ajustarMinDataFim);
+      ajustarMinDataFim(); // aplica ao carregar
+    }
+
+    // Botão Criar Ordens
+    var btnCriar = document.getElementById('btn-criar-ordens');
+    if (btnCriar) btnCriar.addEventListener('click', function () {
+      var dtInicio = elDtInicio ? elDtInicio.value : '';
+      var dtFim = elDtFim ? elDtFim.value : '';
+      if (!dtInicio || !dtFim) { alert('Preencha Data de Início e Data Fim.'); return; }
+      if (dtFim <= dtInicio) { alert('Data Fim deve ser pelo menos 1 dia após Data de Início.'); return; }
+      var selRows = rows.filter(function(r) { return !!selectedIds[r._id]; });
+      Streamlit.setComponentValue({
+        action: 'criar_ordens',
+        data_inicio: dtInicio,
+        data_fim: dtFim,
+        selected_rows: selRows
+      });
+    });
+
+    // Excluir material (× no chip)
+    document.querySelectorAll('.chip-remove').forEach(function (btn) {
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var id = parseInt(btn.getAttribute('data-id'));
+        var matIdx = parseInt(btn.getAttribute('data-mat-idx'));
+        var row = rows.find(function(r){return r._id===id;});
+        if (!row) return;
+        var pk = row[rowPrimaryKey];
+        var opId = row._op_id;
+        if (pk == null || opId == null) return;
+
+        // Extrai o NM do texto do chip (antes do espaço+parêntese)
+        var chipText = btn.parentElement.textContent.replace('×','').trim();
+        var nm = chipText.split(' (')[0].trim();
+
+        if (!confirm('Remover material ' + nm + ' da operação ' + opId + '?')) return;
+
+        Streamlit.setComponentValue({
+          action: 'delete_mat',
+          id: String(pk),
+          op_id: String(opId),
+          nm: nm
+        });
+      });
+    });
+  }
+
+  function getSortedRows() {
+    if (!sortCol) return rows.slice();
+    return rows.slice().sort(function (a, b) {
+      var va = a[sortCol]||'', vb = b[sortCol]||'';
+      var cmp = String(va).localeCompare(String(vb), 'pt-BR', {numeric:true});
+      return sortAsc ? cmp : -cmp;
+    });
+  }
+
+  function esc(s) { var d=document.createElement('div'); d.textContent=s; return d.innerHTML; }
+
+  if (DATA) {
+    initData();
+    render();
+  }
+  Streamlit.setComponentReady();
+  setTimeout(function(){ Streamlit.setFrameHeight(document.body.scrollHeight); }, 100);
+})();
+</script>
+</body>
+</html>

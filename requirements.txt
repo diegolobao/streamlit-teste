@@ -4,3 +4,7 @@ bcrypt
 python-dotenv
 httpx
 pandas
+requests
+openai
+pydantic
+pydantic

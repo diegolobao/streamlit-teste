@@ -712,9 +712,9 @@ elif pagina_atual == "consulta":
   function sleep(ms) {{ return new Promise(function(r) {{ setTimeout(r, ms); }}); }}
 
   function sinalizar(res) {{
-    var url = new URL(window.parent.location.href);
-    url.searchParams.set("busca_ok", res);
-    window.parent.location.href = url.toString();
+    // Usa URL relativa para evitar SecurityError ao ler window.parent.location.href
+    // em iframes srcdoc (origem opaque). Escrita cross-origin é permitida.
+    window.parent.location.href = "?busca_ok=" + encodeURIComponent(res);
   }}
 
   async function executar() {{

@@ -2,6 +2,7 @@ import streamlit as st
 import os
 import sys
 import time
+import json
 import requests
 import pandas as pd
 from dotenv import load_dotenv
@@ -12,13 +13,9 @@ from admin import tela_admin
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "components_test"))
 from smart_table import smart_table
 
-# Importa módulos de busca e extração
-from databricks_client import buscar_notas_batch, salvar_supabase as salvar_notas_raw
-from extrair_delineamento import (
-    extrair_delineamento, salvar_delineamento_supabase,
-    salvar_revisao_supabase, buscar_operacoes_ia,
-    MAPA_CENTRO_TRABALHO,
-)
+# Importa módulo de revisão de delineamentos (salvar edições do usuário no Supabase)
+# databricks_client e extrair_delineamento são executados no agente local (agente.exe)
+from extrair_delineamento import salvar_revisao_supabase
 
 # Carrega .env
 load_dotenv()
@@ -26,6 +23,7 @@ load_dotenv()
 SUPABASE_URL = os.getenv("SUPABASE_URL", "")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "")
 SSL_VERIFY = os.getenv("SSL_VERIFY", "true").lower() not in ("false", "0", "no")
+AGENTE_URL = os.getenv("AGENTE_URL", "http://127.0.0.1:8080")
 
 st.set_page_config(page_title="SmartOM", layout="wide", initial_sidebar_state="expanded")
 
@@ -349,6 +347,15 @@ elif pagina_atual == "consulta":
             })
         return resultado
 
+    # Detecta retorno do agente local via query param na URL
+    _busca_ok = st.query_params.get("busca_ok", "")
+    if _busca_ok:
+        st.query_params.clear()
+        st.session_state.pop("busca_em_andamento", None)
+        st.session_state.pop("notas_pendentes", None)
+        carregar_delineamentos.clear()
+        st.rerun()
+
     try:
         registros_supabase = carregar_delineamentos()
     except Exception as e:
@@ -593,155 +600,47 @@ elif pagina_atual == "consulta":
                 if not linhas:
                     status_placeholder.warning("⚠️ Insira ao menos um número de nota.")
                 else:
-                    # ── Etapa 1: Buscar no SAP via Databricks ──
-                    status_placeholder.info(f"🔍 Buscando {len(linhas)} nota(s) no SAP...")
+                    # ── Pre-check: notas já delineadas (Supabase acessível do Streamlit Cloud) ──
+                    notas_ja_delineadas = set()
                     try:
-                        resultados_sap = buscar_notas_batch(linhas)
-                    except Exception as e:
-                        status_placeholder.error(f"❌ Erro ao buscar no SAP: {e}")
-                        resultados_sap = []
+                        notas_norm = {n.lstrip("0")[-8:] for n in linhas}
+                        url_check = f"{SUPABASE_URL}/rest/v1/notas_delineadas"
+                        headers_check = {
+                            "apikey": SUPABASE_KEY,
+                            "Authorization": f"Bearer {SUPABASE_KEY}",
+                        }
+                        params_check = {
+                            "select": "numero_nota",
+                            "numero_nota": f"in.({','.join(notas_norm)})",
+                        }
+                        resp_check = requests.get(
+                            url_check, headers=headers_check,
+                            params=params_check, verify=SSL_VERIFY,
+                        )
+                        resp_check.raise_for_status()
+                        notas_ja_delineadas = {r["numero_nota"] for r in resp_check.json()}
+                    except Exception:
+                        pass  # Em caso de erro, encaminha todas ao agente
 
-                    if resultados_sap:
-                        # Notas não encontradas
-                        notas_encontradas = {r["numero_nota"] for r in resultados_sap}
-                        notas_input = {n.lstrip("0")[-8:] for n in linhas}
-                        nao_encontradas = notas_input - notas_encontradas
-                        if nao_encontradas:
-                            status_placeholder.warning(
-                                f"⚠️ {len(nao_encontradas)} nota(s) não encontrada(s): "
-                                f"{', '.join(sorted(nao_encontradas))}. Continuando com as demais..."
-                            )
+                    if notas_ja_delineadas:
+                        avisos_placeholder.warning(
+                            f"📋 Nota(s) já delineada(s): "
+                            f"{', '.join(sorted(notas_ja_delineadas))}. Serão ignoradas."
+                        )
 
-                        # ── Filtrar notas que já possuem Ordem de Manutenção ──
-                        com_ordem = [
-                            r for r in resultados_sap
-                            if r.get("ordem_servico") and str(r["ordem_servico"]).strip()
-                        ]
-                        if com_ordem:
-                            detalhes = ", ".join(
-                                f"{r['numero_nota']} (OM: {str(r['ordem_servico']).lstrip('0')})"
-                                for r in com_ordem
-                            )
-                            avisos_placeholder.warning(
-                                f"🔒 Nota(s) já possuem Ordem de Manutenção: {detalhes}. Serão ignoradas."
-                            )
-                            notas_com_ordem = {r["numero_nota"] for r in com_ordem}
-                            resultados_sap = [
-                                r for r in resultados_sap
-                                if r["numero_nota"] not in notas_com_ordem
-                            ]
+                    linhas_filtradas = [
+                        n for n in linhas
+                        if n.lstrip("0")[-8:] not in notas_ja_delineadas
+                    ]
 
-                        if not resultados_sap:
-                            status_placeholder.info("ℹ️ Todas as notas já possuem Ordem de Manutenção.")
-                        else:
-                            # ── Verificar notas já delineadas ──
-                            notas_ja_delineadas = set()
-                            try:
-                                notas_restantes = {r["numero_nota"] for r in resultados_sap}
-                                url_check = f"{SUPABASE_URL}/rest/v1/notas_delineadas"
-                                headers_check = {
-                                    "apikey": SUPABASE_KEY,
-                                    "Authorization": f"Bearer {SUPABASE_KEY}",
-                                }
-                                params_check = {
-                                    "select": "numero_nota",
-                                    "numero_nota": f"in.({','.join(notas_restantes)})",
-                                }
-                                resp_check = requests.get(
-                                    url_check, headers=headers_check,
-                                    params=params_check, verify=SSL_VERIFY,
-                                )
-                                resp_check.raise_for_status()
-                                notas_ja_delineadas = {r["numero_nota"] for r in resp_check.json()}
-                            except Exception:
-                                pass  # Em caso de erro, processa todas
-
-                            if notas_ja_delineadas:
-                                avisos_placeholder.warning(
-                                    f"📋 Nota(s) já delineada(s): "
-                                    f"{', '.join(sorted(notas_ja_delineadas))}. Serão ignoradas."
-                                )
-
-                            # Filtra apenas notas não delineadas
-                            resultados_sap = [
-                                r for r in resultados_sap
-                                if r["numero_nota"] not in notas_ja_delineadas
-                            ]
-
-                            if not resultados_sap:
-                                status_placeholder.info("ℹ️ Todas as notas já foram delineadas.")
-                            else:
-                                # Dados do usuário logado
-                                usr_chave = usuario.get("chave", "") if usuario else ""
-                                usr_lotacao = usuario.get("lotacao", "") if usuario else ""
-
-                                # Salvar em notas_raw (Supabase)
-                                status_placeholder.info(
-                                    f"💾 Salvando {len(resultados_sap)} nota(s) no banco de dados..."
-                                )
-                                try:
-                                    salvar_notas_raw(resultados_sap, chave=usr_chave, lotacao=usr_lotacao)
-                                except Exception as e:
-                                    status_placeholder.error(f"❌ Erro ao salvar notas_raw: {e}")
-                                    st.stop()
-
-                                # ── Etapa 2: Extrair delineamento com IA ──
-                                total = len(resultados_sap)
-                                erros_ia = []
-                                for idx, nota_data in enumerate(resultados_sap, 1):
-                                    nota_num = nota_data["numero_nota"]
-                                    texto = nota_data.get("texto_nota", "")
-                                    if not texto.strip():
-                                        erros_ia.append(f"{nota_num} (sem texto)")
-                                        continue
-
-                                    status_placeholder.info(
-                                        f"🤖 Extraindo delineamento com IA... ({idx}/{total}) — Nota {nota_num}"
-                                    )
-                                    try:
-                                        resultado_ia = extrair_delineamento(texto)
-
-                                        # Pós-processamento
-                                        operacoes_final = []
-                                        for i, op in enumerate(resultado_ia.operacoes):
-                                            abrev = op.centro_trabalho_executor.upper()
-                                            operacoes_final.append({
-                                                "operação": f"{(i + 1) * 10:04d}",
-                                                "centro_trabalho_executor": MAPA_CENTRO_TRABALHO.get(abrev, abrev),
-                                                "descricao_operacao": op.descricao_operacao[:40],
-                                                "numero_executantes": str(op.numero_executantes),
-                                                "duracao_hh": str(op.duracao_hh).replace(".", ","),
-                                                "materiais": [{"nm": m.nm, "quantidade": str(m.quantidade)} for m in op.materiais],
-                                            })
-
-                                        delineamento_final = {
-                                            "numero_nota": nota_data.get("numero_nota", nota_num),
-                                            "centro_trabalho_responsavel": nota_data.get("centro_trabalho", ""),
-                                            "descricao_geral": nota_data.get("descricao_nota", ""),
-                                            "area_responsavel": nota_data.get("notificador", "").split("-")[0],
-                                            "operacoes": operacoes_final,
-                                        }
-
-                                        salvar_delineamento_supabase(delineamento_final, chave=usr_chave, lotacao=usr_lotacao)
-                                    except Exception as e:
-                                        erros_ia.append(f"{nota_num} ({e})")
-
-                                # Resultado final
-                                if erros_ia:
-                                    status_placeholder.warning(
-                                        f"✅ Concluído com avisos. Erros em: {', '.join(erros_ia)}"
-                                    )
-                                else:
-                                    status_placeholder.success(
-                                        f"✅ {total} nota(s) processada(s) com sucesso!"
-                                    )
-
-                                # Atualiza SmartTable
-                                carregar_delineamentos.clear()
-                                time.sleep(0.5)
-                                st.rerun()
-                    elif not resultados_sap:
-                        status_placeholder.error("❌ Nenhuma nota encontrada no SAP.")
+                    if not linhas_filtradas:
+                        status_placeholder.info("ℹ️ Todas as notas já foram delineadas.")
+                    else:
+                        status_placeholder.info(
+                            f"🔍 Acionando agente local para {len(linhas_filtradas)} nota(s)..."
+                        )
+                        st.session_state["notas_pendentes"] = linhas_filtradas
+                        st.session_state["busca_em_andamento"] = True
 
         # Coluna direita — SmartTable
         with col_resultado:
@@ -762,6 +661,206 @@ elif pagina_atual == "consulta":
                 jsonb_op_key="operação",
                 field_map=FIELD_MAP,
             )
+
+        # ═══════════════════════════════════════════════════════════════════════
+        # Bloco JS — aciona o agente local (agente.exe) no browser do usuário
+        # O JS roda na máquina do usuário (dentro da rede corporativa Petrobras)
+        # e pode acessar localhost:8080, Databricks e Azure OpenAI via rede interna.
+        # Ao concluir, sinaliza via query param ?busca_ok=... → Streamlit recarrega.
+        # ═══════════════════════════════════════════════════════════════════════
+        if st.session_state.get("busca_em_andamento"):
+            _notas_pend  = st.session_state.get("notas_pendentes", [])
+            _usr_chave   = usuario.get("chave", "") if usuario else ""
+            _usr_lotacao = usuario.get("lotacao", "") if usuario else ""
+            _cfg = json.dumps({
+                "notas":      _notas_pend,
+                "chave":      _usr_chave,
+                "lotacao":    _usr_lotacao,
+                "agente_url": AGENTE_URL,
+            })
+            st.components.v1.html(f"""
+<div id="agente-cfg" style="display:none">{_cfg}</div>
+<div id="agente-status" style="font-family:'Inter',sans-serif;font-size:13px;
+  padding:10px 14px;background:#f0f9ff;border:1px solid #bae6fd;
+  border-radius:8px;color:#0369a1;margin:4px 0">
+  ⏳ Conectando ao agente local...
+</div>
+<script>
+(function() {{
+  var cfg = JSON.parse(document.getElementById("agente-cfg").textContent);
+  var base    = cfg.agente_url;
+  var notas   = cfg.notas;
+  var chave   = cfg.chave;
+  var lotacao = cfg.lotacao;
+  var el = document.getElementById("agente-status");
+
+  var cores = {{
+    info:  {{bg:"#f0f9ff",border:"#bae6fd",color:"#0369a1"}},
+    ok:    {{bg:"#f0fdf4",border:"#bbf7d0",color:"#15803d"}},
+    warn:  {{bg:"#fffbeb",border:"#fde68a",color:"#92400e"}},
+    error: {{bg:"#fef2f2",border:"#fecaca",color:"#dc2626"}},
+  }};
+
+  function setStatus(msg, tipo) {{
+    el.textContent = msg;
+    var c = cores[tipo || "info"];
+    el.style.background   = c.bg;
+    el.style.borderColor  = c.border;
+    el.style.color        = c.color;
+  }}
+
+  function sleep(ms) {{ return new Promise(function(r) {{ setTimeout(r, ms); }}); }}
+
+  function sinalizar(res) {{
+    var url = new URL(window.parent.location.href);
+    url.searchParams.set("busca_ok", res);
+    window.parent.location.href = url.toString();
+  }}
+
+  async function executar() {{
+    // ── Etapa 1: Consultar Databricks via agente ──────────────────────────
+    setStatus("🔍 Buscando " + notas.length + " nota(s) no Databricks...", "info");
+    var resp1;
+    try {{
+      resp1 = await fetch(base + "/consultar_notas_databricks", {{
+        method: "POST",
+        headers: {{"Content-Type": "application/json"}},
+        body: JSON.stringify({{
+          notas:   notas,
+          opcoes:  {{persistir_supabase: true}},
+          usuario: {{chave: chave, lotacao: lotacao}}
+        }})
+      }});
+    }} catch (e) {{
+      setStatus(
+        "❌ Agente local não encontrado em " + base +
+        ". Inicie o agente.exe antes de buscar.",
+        "error"
+      );
+      return;
+    }}
+
+    if (!resp1.ok) {{
+      setStatus("❌ Erro HTTP do agente: " + resp1.status, "error");
+      return;
+    }}
+
+    var data1 = await resp1.json();
+    if (data1.status !== "ok") {{
+      setStatus("❌ Erro do agente: " + (data1.detalhe || "desconhecido"), "error");
+      return;
+    }}
+
+    var resultados     = data1.resultados || [];
+    var naoEncontradas = data1.nao_encontradas || [];
+
+    if (resultados.length === 0) {{
+      setStatus("❌ Nenhuma nota encontrada no Databricks.", "error");
+      await sleep(2500);
+      sinalizar("nenhuma");
+      return;
+    }}
+
+    if (naoEncontradas.length > 0) {{
+      setStatus(
+        "⚠️ " + naoEncontradas.length + " nota(s) não encontrada(s). Continuando...",
+        "warn"
+      );
+      await sleep(1500);
+    }}
+
+    // ── Filtrar notas com Ordem de Manutenção ─────────────────────────────
+    var comOrdem = resultados.filter(function(r) {{
+      return r.ordem_servico && String(r.ordem_servico).trim();
+    }});
+    var semOrdem = resultados.filter(function(r) {{
+      return !r.ordem_servico || !String(r.ordem_servico).trim();
+    }});
+
+    if (comOrdem.length > 0) {{
+      var detalhes = comOrdem.map(function(r) {{
+        return r.numero_nota + " (OM: " + String(r.ordem_servico).replace(/^0+/, "") + ")";
+      }}).join(", ");
+      setStatus(
+        "🔒 Nota(s) já possuem OM e serão ignoradas: " + detalhes +
+        ". Continuando com " + semOrdem.length + "...",
+        "warn"
+      );
+      await sleep(2000);
+    }}
+
+    if (semOrdem.length === 0) {{
+      setStatus("ℹ️ Todas as notas já possuem Ordem de Manutenção.", "warn");
+      await sleep(2000);
+      sinalizar("todas_com_om");
+      return;
+    }}
+
+    // ── Etapa 2: Extrair delineamentos via IA ─────────────────────────────
+    setStatus(
+      "🤖 Extraindo delineamento com IA para " + semOrdem.length + " nota(s)...",
+      "info"
+    );
+    var notasInput = semOrdem.map(function(r) {{
+      return {{
+        numero_nota:     r.numero_nota,
+        centro_trabalho: r.centro_trabalho  || "",
+        descricao_nota:  r.descricao_nota   || "",
+        notificador:     r.notificador      || "",
+        texto_nota:      r.texto_nota       || ""
+      }};
+    }});
+
+    var resp2;
+    try {{
+      resp2 = await fetch(base + "/extrair_delineamentos", {{
+        method: "POST",
+        headers: {{"Content-Type": "application/json"}},
+        body: JSON.stringify({{
+          notas:   notasInput,
+          opcoes:  {{persistir_supabase: true}},
+          usuario: {{chave: chave, lotacao: lotacao}}
+        }})
+      }});
+    }} catch (e) {{
+      setStatus("❌ Erro ao contactar agente (extração IA): " + e.message, "error");
+      return;
+    }}
+
+    if (!resp2.ok) {{
+      setStatus("❌ Erro HTTP na extração: " + resp2.status, "error");
+      return;
+    }}
+
+    var data2 = await resp2.json();
+    if (data2.status !== "ok") {{
+      setStatus("❌ Erro na extração IA: " + (data2.detalhe || "desconhecido"), "error");
+      return;
+    }}
+
+    var processadas = data2.total_processadas || 0;
+    var erros_ia    = data2.total_erros       || 0;
+
+    if (erros_ia > 0) {{
+      setStatus(
+        "✅ Concluído com avisos: " + processadas +
+        " processada(s), " + erros_ia + " com erro.",
+        "warn"
+      );
+    }} else {{
+      setStatus("✅ " + processadas + " nota(s) processada(s) com sucesso!", "ok");
+    }}
+
+    await sleep(2000);
+    sinalizar("ok");
+  }}
+
+  executar().catch(function(e) {{
+    setStatus("❌ Erro inesperado: " + e.message, "error");
+  }});
+}})();
+</script>
+""", height=80)
 
         # ───────────────────────────────────────────────────────────────────────
         # Trata ações do componente
